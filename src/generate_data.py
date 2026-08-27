@@ -46,6 +46,26 @@ def generate_data(n=5000, seed=42, test_size=0.2):
     delivery_distance_km = np.random.exponential(scale=15, size=n).round(1)
     checkout_time_sec = np.random.lognormal(mean=4.0, sigma=0.8, size=n).round(1)
     
+    # --- DOMAIN CONSTRAINTS ---
+    
+    # Simplified merchant-side risk/operations constraint (not an official Razorpay limit)
+    COD_MAX_AMOUNT_INR = 15000
+    
+    # Constraint 1: Digital goods cannot use COD.
+    # Reassign digital+COD rows to other methods, preserving reasonable variation.
+    # We use the relative probabilities of the non-COD methods: upi(0.4), card(0.2), netbanking(0.1), wallet(0.05)
+    digital_cod_mask = (category == 'digital') & (method == 'cod')
+    non_cod_methods = ['upi', 'card', 'netbanking', 'wallet']
+    non_cod_probs = [0.4/0.75, 0.2/0.75, 0.1/0.75, 0.05/0.75]
+    method[digital_cod_mask] = np.random.choice(non_cod_methods, size=digital_cod_mask.sum(), p=non_cod_probs)
+    
+    # Constraint 2: Digital goods are non-physical and therefore have zero delivery distance.
+    delivery_distance_km[category == 'digital'] = 0.0
+    
+    # Constraint 3: Cap COD order amounts
+    cod_mask = (method == 'cod')
+    amount_inr[cod_mask] = np.clip(amount_inr[cod_mask], 50, COD_MAX_AMOUNT_INR)
+
     # Assemble df
     df = pd.DataFrame({
         'order_id': order_ids,
