@@ -195,7 +195,7 @@ def main(train_csv_path='data/train.csv'):
     # Save Artifacts
     config = {
         "model_type": "LogisticRegression (Unweighted)",
-        "model_version": "1.0",
+        "model_version": "LR_UNWEIGHTED_V1",
         "policy_version": "1.1",
         "validation_seed": 42,
         "review_threshold": best_policy['review_threshold'],
