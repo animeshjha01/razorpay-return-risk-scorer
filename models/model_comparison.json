@@ -1,0 +1,10 @@
+{
+    "LogisticRegression": {
+        "ROC_AUC": 0.7460432900432901,
+        "AveragePrecision": 0.3996826570908796
+    },
+    "HistGradientBoosting": {
+        "ROC_AUC": 0.720682251082251,
+        "AveragePrecision": 0.3825316837107884
+    }
+}
