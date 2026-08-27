@@ -253,5 +253,78 @@ class TestAPI(unittest.IsolatedAsyncioTestCase):
             response = self.client.get("/audit/fake_id")
             self.assertEqual(response.status_code, 503)
 
+    # --- HARDENING TESTS ---
+    def _assert_no_audit(self):
+        with sqlite3.connect(self.temp_db_path) as conn:
+            count = conn.execute("SELECT COUNT(*) FROM decision_audit_log").fetchone()[0]
+            self.assertEqual(count, 0)
+
+    def test_score_order_invalid_order_hour(self):
+        # -1 -> rejected
+        order = self.base_order.copy()
+        order["order_hour"] = -1
+        response = self.client.post("/score-order", json=order)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("between 0 and 23", response.json()["detail"])
+        self._assert_no_audit()
+
+        # 0 -> accepted
+        order["order_hour"] = 0
+        response = self.client.post("/score-order", json=order)
+        self.assertEqual(response.status_code, 200)
+
+        # 23 -> accepted
+        order["order_hour"] = 23
+        order["order_id"] = "new_id_23" # need unique if we were enforcing idempotency, but good practice
+        response = self.client.post("/score-order", json=order)
+        self.assertEqual(response.status_code, 200)
+
+        # 24 -> rejected
+        order["order_hour"] = 24
+        response = self.client.post("/score-order", json=order)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("between 0 and 23", response.json()["detail"])
+
+    def test_score_order_invalid_return_rate(self):
+        # -0.01 -> rejected
+        order = self.base_order.copy()
+        order["past_return_rate"] = -0.01
+        response = self.client.post("/score-order", json=order)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("between 0.0 and 1.0", response.json()["detail"])
+
+        # 0 -> accepted
+        order["past_return_rate"] = 0.0
+        response = self.client.post("/score-order", json=order)
+        self.assertEqual(response.status_code, 200)
+
+        # 1 -> accepted
+        order["past_return_rate"] = 1.0
+        response = self.client.post("/score-order", json=order)
+        self.assertEqual(response.status_code, 200)
+
+        # 1.01 -> rejected
+        order["past_return_rate"] = 1.01
+        response = self.client.post("/score-order", json=order)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("between 0.0 and 1.0", response.json()["detail"])
+
+    def test_score_order_logging_on_unexpected_error(self):
+        from unittest.mock import patch
+        
+        with patch('api.scoring_service.score_order', side_effect=ValueError("Simulated catastrophic crash")):
+            with self.assertLogs('api', level='ERROR') as cm:
+                response = self.client.post("/score-order", json=self.base_order)
+                
+        # Must return the safe HTTP error
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["detail"], "An unexpected internal server error occurred.")
+        self.assertNotIn("Simulated catastrophic crash", response.text)
+        
+        # Must log the actual error server-side
+        self.assertEqual(len(cm.output), 1)
+        self.assertIn("Simulated catastrophic crash", cm.output[0])
+        self.assertIn(self.base_order["order_id"], cm.output[0])
+
 if __name__ == '__main__':
     unittest.main()

@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from typing import List, Optional, Any
+import logging
 from fastapi import FastAPI, HTTPException, Query, Path
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -15,6 +16,8 @@ from scoring_service import (
     ScoringServiceError
 )
 from audit_log import AuditLogError
+
+logger = logging.getLogger(__name__)
 
 # Global service instance
 scoring_service = None
@@ -167,10 +170,12 @@ async def score_order(order: OrderRequest):
         
     except ScoringServiceError as e:
         # Unexpected internal service errors
+        logger.error(f"Internal scoring failure for order_id={order.order_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal scoring failure.")
         
     except Exception as e:
         # Generic unhandled exception shield. Do not leak stack trace to client.
+        logger.error(f"Unexpected internal server error processing order_id={order.order_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An unexpected internal server error occurred.")
 
 @app.get("/audit/recent", response_model=List[AuditRecordResponse], tags=["Audit"])
@@ -191,8 +196,10 @@ async def get_recent_audits(
         records = scoring_service.audit_log.list_recent_decisions(limit=limit)
         return records
     except AuditLogError as e:
+        logger.error(f"Audit database read failure on recent audits: {e}", exc_info=True)
         raise HTTPException(status_code=503, detail="Audit database read failure.")
     except Exception as e:
+        logger.error(f"Unexpected internal server error on get_recent_audits: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An unexpected internal server error occurred.")
 
 @app.get("/audit/{audit_id}", response_model=AuditRecordResponse, tags=["Audit"])
@@ -217,7 +224,9 @@ async def get_audit_record(
     except HTTPException:
         raise
     except AuditLogError as e:
+        logger.error(f"Audit database read failure on audit_id={audit_id}: {e}", exc_info=True)
         raise HTTPException(status_code=503, detail="Audit database read failure.")
     except Exception as e:
+        logger.error(f"Unexpected internal server error on get_audit_record for audit_id={audit_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An unexpected internal server error occurred.")
 

@@ -104,6 +104,15 @@ class ScoringService:
         category = str(order["category"]).lower()
         dist = order["delivery_distance_km"]
         
+        # New strict boundary constraints
+        hour = order.get("order_hour", 0)
+        if hour < 0 or hour > 23:
+            raise DomainValidationError(f"order_hour must be between 0 and 23, got: {hour}")
+            
+        rate = order.get("past_return_rate", 0.0)
+        if rate < 0.0 or rate > 1.0:
+            raise DomainValidationError(f"past_return_rate must be between 0.0 and 1.0, got: {rate}")
+        
         if amt < 50:
             raise DomainValidationError(f"Amount {amt} is below the minimum allowed (50 INR).")
             
