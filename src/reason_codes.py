@@ -8,6 +8,12 @@ DOMAIN_CONTEXT_THRESHOLDS = {
     "LONG_DELIVERY_DISTANCE_KM": 50.0,
 }
 
+# The minimum absolute contribution in log-odds space required to surface 
+# a feature in the user-facing explanation payload. This removes negligible 
+# mathematical noise (e.g. checkout_time_sec = -0.0025) while preserving
+# the actual underlying calculation and risk decision.
+EXPLANATION_MIN_ABS_CONTRIBUTION = 0.05
+
 # Mapping raw feature + direction to human-readable codes and text
 MODEL_REASON_MAPPINGS = {
     "past_return_rate_increases_risk": ("ELEVATED_HISTORICAL_RETURN_RATE", "Higher historical return rate provides a risk-increasing model contribution in log-odds space."),
@@ -84,8 +90,9 @@ def extract_model_contributions(model, features_dict: dict) -> list[dict]:
         c = agg_contributions[raw_f]
         raw_val = features_dict.get(raw_f)
         
-        # Filter out negligible noise (e.g. from completely unsupported features like checkout_time_sec)
-        if abs(c) < 0.001:
+        # Filter out literal zeros and pure floating-point noise from OneHotEncoder
+        # The true materiality filter for explanations is applied later.
+        if abs(c) < 1e-6:
             continue
             
         direction = "increases_risk" if c > 0 else "reduces_risk"
@@ -129,8 +136,15 @@ def generate_reasons(features: dict, risk_score: float, policy_config: dict, mod
     # 2. Model contributions
     if model is not None:
         contributions = extract_model_contributions(model, features)
-        result["top_positive_model_contributions"] = [c for c in contributions if c['direction'] == 'increases_risk']
-        result["top_negative_model_contributions"] = [c for c in contributions if c['direction'] == 'reduces_risk']
+        
+        # Apply human-facing materiality threshold
+        meaningful_contributions = [c for c in contributions if abs(c['contribution']) >= EXPLANATION_MIN_ABS_CONTRIBUTION]
+        
+        pos_contribs = [c for c in meaningful_contributions if c['direction'] == 'increases_risk']
+        neg_contribs = [c for c in meaningful_contributions if c['direction'] == 'reduces_risk']
+        
+        result["top_positive_model_contributions"] = pos_contribs[:3]
+        result["top_negative_model_contributions"] = neg_contribs[:3]
         
     # 3. Domain context (heuristics)
     if features.get('amount_inr', 0.0) >= DOMAIN_CONTEXT_THRESHOLDS["HIGH_ORDER_VALUE_INR"]:

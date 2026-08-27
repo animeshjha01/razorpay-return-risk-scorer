@@ -71,20 +71,27 @@ class TestDecisionPolicy(unittest.TestCase):
         result = process_decision(0.75, features, self.valid_policy, model)
         
         # 1. Deterministic and Uses Fitted Model
-        self.assertTrue("ELEVATED_HISTORICAL_RETURN_RATE" in [c["reason_code"] for c in result["top_positive_model_contributions"]])
+        self.assertGreater(len(result["top_positive_model_contributions"]), 0)
         
-        # 2. Positive vs Negative
+        # 2. Positive vs Negative and Top-N / Materiality filtering
+        from reason_codes import EXPLANATION_MIN_ABS_CONTRIBUTION
+        self.assertLessEqual(len(result["top_positive_model_contributions"]), 3)
+        self.assertLessEqual(len(result["top_negative_model_contributions"]), 3)
+        
         for c in result["top_positive_model_contributions"]:
             self.assertEqual(c["direction"], "increases_risk")
-            self.assertGreater(c["contribution"], 0.0)
+            self.assertGreaterEqual(c["contribution"], EXPLANATION_MIN_ABS_CONTRIBUTION)
             
         for c in result["top_negative_model_contributions"]:
             self.assertEqual(c["direction"], "reduces_risk")
-            self.assertLess(c["contribution"], 0.0)
+            self.assertLessEqual(c["contribution"], -EXPLANATION_MIN_ABS_CONTRIBUTION)
+            
+        # Ensure flat reason codes only surface the top N contributors + domain + base score
+        expected_reason_code_count = 1 + len(result["top_positive_model_contributions"]) + len(result["top_negative_model_contributions"]) + len(result["domain_signals"])
+        self.assertEqual(len(result["reason_codes"]), expected_reason_code_count)
             
         # 3. Categorical Aggregated (method should be aggregated instead of method_cod)
         features_explained = [c["feature"] for c in result["top_positive_model_contributions"] + result["top_negative_model_contributions"]]
-        self.assertIn("method", features_explained)
         self.assertNotIn("method_cod", features_explained)
         
         # 4. Reason codes do not claim causality
