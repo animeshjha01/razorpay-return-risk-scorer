@@ -2,151 +2,94 @@ import pandas as pd
 import numpy as np
 import json
 import joblib
-from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import HistGradientBoostingClassifier
-from sklearn.metrics import roc_auc_score, average_precision_score, precision_score, recall_score, f1_score, confusion_matrix
-from sklearn.inspection import permutation_importance
+from pipeline_utils import get_model, FEATURES
+from sklearn.metrics import roc_auc_score, average_precision_score, precision_score, recall_score, f1_score
 
 def train():
     print("Loading data...")
     train_df = pd.read_csv('data/train.csv')
     test_df = pd.read_csv('data/test.csv')
     
-    features = [
-        'amount_inr', 'method', 'category', 'is_new_customer', 
-        'past_orders', 'past_return_rate', 'order_hour', 
-        'is_weekend', 'is_late_night', 'delivery_distance_km', 
-        'checkout_time_sec'
-    ]
-    
-    X_train = train_df[features]
+    X_train = train_df[FEATURES]
     y_train = train_df['returned_or_chargeback']
     
-    X_test = test_df[features]
+    X_test = test_df[FEATURES]
     y_test = test_df['returned_or_chargeback']
     
-    numeric_features = [
-        'amount_inr', 'past_orders', 'past_return_rate', 
-        'order_hour', 'delivery_distance_km', 'checkout_time_sec'
-    ]
-    categorical_features = ['method', 'category']
-    passthrough_features = ['is_new_customer', 'is_weekend', 'is_late_night']
+    # We use Logistic Regression as it outperformed HGB in Phase 1
+    print("Training final Logistic Regression model on FULL training set...")
+    model = get_model('lr')
+    model.fit(X_train, y_train)
     
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ('num', StandardScaler(), numeric_features),
-            ('cat', OneHotEncoder(handle_unknown='ignore'), categorical_features),
-            ('pass', 'passthrough', passthrough_features)
-        ]
+    # Save the final model
+    joblib.dump(model, 'models/return_risk_model.joblib')
+    
+    # Load Frozen Policy
+    with open('models/policy_config.json', 'r') as f:
+        policy = json.load(f)
+        
+    t_rev = policy['review_threshold']
+    t_hold = policy['hold_threshold']
+    review_cost_rate = policy['review_cost_inr']
+    hold_cost_rate = policy['hold_cost_inr']
+    
+    print("\n--- FINAL HELD-OUT TEST EVALUATION ---")
+    print(f"Applying frozen policy (T_rev={t_rev}, T_hold={t_hold})...")
+    
+    y_prob = model.predict_proba(X_test)[:, 1]
+    amount = test_df['amount_inr'].values
+    # Apply authoritative policy cost function
+    from policy_selection import evaluate_policy
+    
+    metrics = evaluate_policy(
+        y_test.values, 
+        y_prob, 
+        amount, 
+        t_rev, 
+        t_hold, 
+        review_cost_rate, 
+        hold_cost_rate, 
+        policy.get('review_residual_risk_rate', 0.0)
     )
     
-    print("Training Logistic Regression baseline...")
-    lr_model = Pipeline([
-        ('preprocessor', preprocessor),
-        ('classifier', LogisticRegression(class_weight='balanced', random_state=42, max_iter=1000))
-    ])
-    lr_model.fit(X_train, y_train)
+    print(f"Approval Rate: {metrics['approval_rate']:.1%}")
+    print(f"Review Rate: {metrics['review_rate']:.1%}")
+    print(f"Hold Rate: {metrics['hold_rate']:.1%}")
+    print(f"Risk Recall: {metrics['risky_order_recall']:.1%}")
+    print(f"Intervention Precision: {metrics['intervention_precision']:.1%}")
+    print(f"Total Test Cost: INR {metrics['total_estimated_cost']:,.0f}")
     
-    print("Training regularized HistGradientBoostingClassifier...")
-    # Using L2 regularization, shallow depth, min_samples_leaf to prevent overfitting
-    gb_model = Pipeline([
-        ('preprocessor', preprocessor),
-        ('classifier', HistGradientBoostingClassifier(
-            max_depth=5,
-            min_samples_leaf=20,
-            l2_regularization=1.0,
-            early_stopping=True,
-            class_weight='balanced',
-            random_state=42
-        ))
-    ])
-    gb_model.fit(X_train, y_train)
-    
-    print("Evaluating models...")
-    lr_probs = lr_model.predict_proba(X_test)[:, 1]
-    gb_probs = gb_model.predict_proba(X_test)[:, 1]
-    
-    lr_roc = roc_auc_score(y_test, lr_probs)
-    lr_ap = average_precision_score(y_test, lr_probs)
-    
-    gb_roc = roc_auc_score(y_test, gb_probs)
-    gb_ap = average_precision_score(y_test, gb_probs)
-    
-    comparison = {
-        'LogisticRegression': {
-            'ROC_AUC': lr_roc,
-            'AveragePrecision': lr_ap
-        },
-        'HistGradientBoosting': {
-            'ROC_AUC': gb_roc,
-            'AveragePrecision': gb_ap
-        }
+    # Save the final results to json
+    final_results = {
+        "approval_rate": metrics['approval_rate'],
+        "review_rate": metrics['review_rate'],
+        "hold_rate": metrics['hold_rate'],
+        "risk_recall": metrics['risky_order_recall'],
+        "intervention_precision": metrics['intervention_precision'],
+        "missed_risk_cost": metrics['missed_risk_cost'],
+        "total_review_cost": metrics['review_cost'],
+        "total_hold_cost": metrics['hold_cost'],
+        "total_estimated_cost": metrics['total_estimated_cost']
     }
-    
-    with open('models/model_comparison.json', 'w') as f:
-        json.dump(comparison, f, indent=4)
+    with open('models/test_evaluation_results.json', 'w') as f:
+        json.dump(final_results, f, indent=4)
         
-    print(f"LR  - ROC-AUC: {lr_roc:.4f}, AP: {lr_ap:.4f}")
-    print(f"HGB - ROC-AUC: {gb_roc:.4f}, AP: {gb_ap:.4f}")
+    print("\n--- FINAL HELD-OUT TEST DIAGNOSTICS ---")
+    print("(REPORTING ONLY - THESE DO NOT INFLUENCE POLICY SELECTION)")
     
-    primary_model = gb_model if gb_roc >= lr_roc else lr_model
-    primary_probs = gb_probs if gb_roc >= lr_roc else lr_probs
-    print(f"Primary model chosen based on ROC-AUC: {'HistGradientBoosting' if gb_roc >= lr_roc else 'LogisticRegression'}")
+    roc = roc_auc_score(y_test, y_prob)
+    ap = average_precision_score(y_test, y_prob)
+    print(f"Test ROC-AUC: {roc:.4f}")
+    print(f"Test Average Precision: {ap:.4f}")
     
-    joblib.dump(primary_model, 'models/return_risk_model.joblib')
-    
-    # Threshold analysis
-    thresholds = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
-    metrics = []
-    costs = []
-    
-    # FP cost: 50 INR, FN cost: actual order amount
-    fp_cost_rate = 50.0
-    
+    thresholds = [0.2, 0.4, 0.6, 0.8]
     for t in thresholds:
-        preds = (primary_probs >= t).astype(int)
+        binary_preds = (y_prob >= t).astype(int)
+        prec = precision_score(y_test, binary_preds, zero_division=0)
+        rec = recall_score(y_test, binary_preds, zero_division=0)
+        f1 = f1_score(y_test, binary_preds, zero_division=0)
+        print(f"Thr {t}: Prec: {prec:.1%}, Rec: {rec:.1%}, F1: {f1:.3f}")
         
-        metrics.append({
-            'threshold': t,
-            'precision': precision_score(y_test, preds, zero_division=0),
-            'recall': recall_score(y_test, preds, zero_division=0),
-            'f1': f1_score(y_test, preds, zero_division=0),
-            'tp': int(np.sum((y_test == 1) & (preds == 1))),
-            'fp': int(np.sum((y_test == 0) & (preds == 1))),
-            'tn': int(np.sum((y_test == 0) & (preds == 0))),
-            'fn': int(np.sum((y_test == 1) & (preds == 0)))
-        })
-        
-        # Calculate cost
-        false_positives_mask = (y_test == 0) & (preds == 1)
-        false_negatives_mask = (y_test == 1) & (preds == 0)
-        
-        cost_fp = np.sum(false_positives_mask) * fp_cost_rate
-        cost_fn = test_df.loc[false_negatives_mask, 'amount_inr'].sum()
-        
-        costs.append({
-            'threshold': t,
-            'fp_cost': float(cost_fp),
-            'fn_cost': float(cost_fn),
-            'total_cost': float(cost_fp + cost_fn)
-        })
-        
-    pd.DataFrame(metrics).to_csv('models/metrics_by_threshold.csv', index=False)
-    pd.DataFrame(costs).to_csv('models/cost_by_threshold.csv', index=False)
-    
-    # Feature importance
-    print("Calculating permutation importance...")
-    result = permutation_importance(primary_model, X_test, y_test, n_repeats=5, random_state=42, n_jobs=-1, scoring='roc_auc')
-    importance_df = pd.DataFrame({
-        'feature': features,
-        'importance_mean': result.importances_mean,
-        'importance_std': result.importances_std
-    }).sort_values('importance_mean', ascending=False)
-    
-    importance_df.to_csv('models/feature_importance.csv', index=False)
     print("Training complete. Artifacts saved in models/")
 
 if __name__ == "__main__":
