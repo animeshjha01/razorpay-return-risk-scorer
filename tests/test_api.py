@@ -177,7 +177,81 @@ class TestAPI(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 503)
         self.assertIn("recorded", response.json()["detail"])
         
-        os.chmod(self.temp_db_path, stat.S_IWRITE | stat.S_IREAD)
+    # --- AUDIT ENDPOINTS ---
+    def test_get_audit_record_existing(self):
+        # Create a record first
+        score_resp = self.client.post("/score-order", json=self.base_order)
+        audit_id = score_resp.json()["audit_id"]
+        
+        # Now fetch it
+        response = self.client.get(f"/audit/{audit_id}")
+        self.assertEqual(response.status_code, 200)
+        
+        data = response.json()
+        self.assertEqual(data["audit_id"], audit_id)
+        self.assertEqual(data["order_id"], self.base_order["order_id"])
+        self.assertEqual(data["decision"], score_resp.json()["decision"])
+        
+    def test_get_audit_record_not_found(self):
+        response = self.client.get("/audit/nonexistent_id")
+        self.assertEqual(response.status_code, 404)
+        
+    def test_get_recent_audits(self):
+        # Create two records
+        self.client.post("/score-order", json=self.base_order)
+        order2 = self.base_order.copy()
+        order2["order_id"] = "ord_api_456"
+        self.client.post("/score-order", json=order2)
+        
+        # Fetch recent
+        response = self.client.get("/audit/recent?limit=10")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(len(data) >= 2)
+        # Verify deterministic descending order
+        self.assertEqual(data[0]["order_id"], "ord_api_456")
+        self.assertEqual(data[1]["order_id"], "ord_api_123")
+        
+    def test_get_recent_audits_default_limit(self):
+        response = self.client.get("/audit/recent")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(isinstance(response.json(), list))
+
+    def test_get_recent_audits_invalid_limits(self):
+        # Below 1
+        resp1 = self.client.get("/audit/recent?limit=0")
+        self.assertEqual(resp1.status_code, 422)
+        
+        # Above 100
+        resp2 = self.client.get("/audit/recent?limit=101")
+        self.assertEqual(resp2.status_code, 422)
+
+    def test_audit_endpoints_do_not_mutate(self):
+        # Initial count
+        with sqlite3.connect(self.temp_db_path) as conn:
+            initial_count = conn.execute("SELECT COUNT(*) FROM decision_audit_log").fetchone()[0]
+            
+        # Call read endpoints
+        self.client.get("/audit/recent")
+        self.client.get("/audit/fake_id")
+        
+        # Check count hasn't changed
+        with sqlite3.connect(self.temp_db_path) as conn:
+            final_count = conn.execute("SELECT COUNT(*) FROM decision_audit_log").fetchone()[0]
+            
+        self.assertEqual(initial_count, final_count)
+
+    def test_audit_endpoints_db_read_failure(self):
+        from unittest.mock import patch
+        from audit_log import AuditLogError
+        
+        with patch('api.scoring_service.audit_log.list_recent_decisions', side_effect=AuditLogError("Mocked read error")):
+            response = self.client.get("/audit/recent")
+            self.assertEqual(response.status_code, 503)
+            
+        with patch('api.scoring_service.audit_log.get_audit_record', side_effect=AuditLogError("Mocked read error")):
+            response = self.client.get("/audit/fake_id")
+            self.assertEqual(response.status_code, 503)
 
 if __name__ == '__main__':
     unittest.main()

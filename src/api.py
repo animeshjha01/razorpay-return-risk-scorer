@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 from typing import List, Optional, Any
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query, Path
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -14,6 +14,7 @@ from scoring_service import (
     AuditFailureError,
     ScoringServiceError
 )
+from audit_log import AuditLogError
 
 # Global service instance
 scoring_service = None
@@ -102,6 +103,16 @@ class HealthResponse(BaseModel):
     policy_version: Optional[str] = None
     error: Optional[str] = None
 
+class AuditRecordResponse(BaseModel):
+    audit_id: str
+    timestamp: str
+    order_id: str
+    risk_score: float
+    decision: str
+    reason_codes: List[str]
+    model_version: str
+    policy_version: str
+
 # --- Endpoints ---
 
 @app.get("/health", response_model=HealthResponse, tags=["Diagnostics"])
@@ -161,3 +172,52 @@ async def score_order(order: OrderRequest):
     except Exception as e:
         # Generic unhandled exception shield. Do not leak stack trace to client.
         raise HTTPException(status_code=500, detail="An unexpected internal server error occurred.")
+
+@app.get("/audit/recent", response_model=List[AuditRecordResponse], tags=["Audit"])
+async def get_recent_audits(
+    limit: int = Query(20, ge=1, le=100, description="Number of recent records to retrieve (1-100)")
+):
+    """
+    Retrieves a list of recent audited risk decisions. 
+    - Audit history is read-only.
+    - Audit records represent explicitly persisted decisions.
+    - Records are maintained in an application-level append-only manner.
+    - (Authentication is outside this hackathon MVP scope).
+    """
+    if scoring_service is None or scoring_service.audit_log is None:
+        raise HTTPException(status_code=503, detail="Audit log is unavailable.")
+        
+    try:
+        records = scoring_service.audit_log.list_recent_decisions(limit=limit)
+        return records
+    except AuditLogError as e:
+        raise HTTPException(status_code=503, detail="Audit database read failure.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="An unexpected internal server error occurred.")
+
+@app.get("/audit/{audit_id}", response_model=AuditRecordResponse, tags=["Audit"])
+async def get_audit_record(
+    audit_id: str = Path(..., min_length=1, description="The unique ID of the audit record")
+):
+    """
+    Retrieves a specific audited risk decision by its ID.
+    - Audit history is read-only.
+    - Audit records represent explicitly persisted decisions.
+    - Records are maintained in an application-level append-only manner.
+    - (Authentication is outside this hackathon MVP scope).
+    """
+    if scoring_service is None or scoring_service.audit_log is None:
+        raise HTTPException(status_code=503, detail="Audit log is unavailable.")
+        
+    try:
+        record = scoring_service.audit_log.get_audit_record(audit_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Audit record not found.")
+        return record
+    except HTTPException:
+        raise
+    except AuditLogError as e:
+        raise HTTPException(status_code=503, detail="Audit database read failure.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="An unexpected internal server error occurred.")
+
