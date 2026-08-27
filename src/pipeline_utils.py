@@ -21,6 +21,9 @@ NUMERIC_FEATURES = [
 CATEGORICAL_FEATURES = ['method', 'category']
 PASSTHROUGH_FEATURES = ['is_new_customer', 'is_weekend', 'is_late_night']
 
+# Authoritative source of truth for the active model version
+MODEL_VERSION = "LR_UNWEIGHTED_V1"
+
 def get_preprocessor():
     """
     Returns the shared ColumnTransformer for preprocessing.
