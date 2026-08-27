@@ -210,7 +210,7 @@ def main(train_csv_path='data/train.csv'):
         "calibration_metric": f"Brier Score = {brier:.4f}",
         "validation_statistics": best_policy,
         "selection_scenario": "Primary Baseline Simulation",
-        "selection_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+        "selection_timestamp": "2026-01-01T12:00:00+00:00"
     }
     
     # Note: These optimal thresholds are highly sensitive to the synthetic business assumptions defined above,

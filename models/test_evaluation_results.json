@@ -1,11 +1,11 @@
 {
-    "approval_rate": 0.722,
-    "review_rate": 0.273,
-    "hold_rate": 0.005,
-    "risk_recall": 0.5914634146341463,
-    "intervention_precision": 0.3489208633093525,
-    "missed_risk_cost": 86386.14,
-    "total_review_cost": 25908.725,
-    "total_hold_cost": 750.0,
-    "total_estimated_cost": 113044.86499999999
+    "approval_rate": 0.783,
+    "review_rate": 0.21,
+    "hold_rate": 0.007,
+    "risk_recall": 0.463855421686747,
+    "intervention_precision": 0.3548387096774194,
+    "missed_risk_cost": 97999.19,
+    "total_review_cost": 18571.507,
+    "total_hold_cost": 1050.0,
+    "total_estimated_cost": 117620.697
 }

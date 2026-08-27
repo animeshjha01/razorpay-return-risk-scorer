@@ -4,7 +4,7 @@ This document describes the end-to-end technical architecture of the Razorpay Re
 
 ## System Overview
 
-The system is decoupled into distinct architectural layers to separate concerns, enforce immutability of audited records, and provide clear operational boundaries.
+The system is decoupled into distinct architectural layers to separate concerns, enforce an application-level append-only audit trail, and provide clear operational boundaries.
 
 ### 1. Presentation
 * **Component:** Streamlit Dashboard

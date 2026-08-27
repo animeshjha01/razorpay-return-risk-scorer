@@ -69,7 +69,7 @@ The evaluation metrics are explicitly separated to prevent conflating internal d
 
 ## Decision Policy
 The model is paired with a deterministic operational policy based on simulated economics:
-* **Thresholds:** `0.20` (Review), `0.69` (Hold).
+* **Thresholds:** `0.20` (Review), `0.79` (Hold).
 * **Costs:** ₹50 (Review intervention), ₹150 (Hold intervention).
 * **Constraints:** Maximum 25% intervention capacity, maximum 5% hold capacity.
 * **Residual Risk:** Assumes manual review fails to catch 10% of true risk.

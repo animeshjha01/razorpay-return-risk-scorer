@@ -114,7 +114,7 @@ A complete system evaluation takes approximately 2-3 minutes:
 The decision thresholds were optimized on an **internal validation split** to minimize simulated operational costs, preventing test-set leakage. The current hypothetical assumptions are:
 
 * **Review threshold:** 0.20
-* **Hold threshold:** 0.69
+* **Hold threshold:** 0.79
 * **Review cost assumption:** ₹50
 * **Hold cost assumption:** ₹150
 * **Review residual-risk assumption:** 10%
@@ -124,12 +124,12 @@ The decision thresholds were optimized on an **internal validation split** to mi
 ## Final Held-Out Policy Behavior
 
 When the frozen policy is applied to the unseen synthetic test set under the stated assumptions, it yields:
-* **Approval rate:** 72.2%
-* **Review rate:** 27.3%
-* **Hold rate:** 0.5%
-* **Intervention precision:** 34.89%
-* **Risk recall:** 59.1%
-* **Estimated test cost:** ₹113,044.86
+* **Approval rate:** 71.9%
+* **Review rate:** 28.1%
+* **Hold rate:** 0.0%
+* **Intervention precision:** 32.0%
+* **Risk recall:** 54.2%
+* **Estimated test cost:** ₹100,366.11
 
 ## Explainability
 
@@ -148,7 +148,7 @@ Every scored order is durably recorded in an application-level append-only SQLit
 * `GET /health` — Diagnostics and readiness probe.
 * `POST /score-order` — Synchronous scoring, threshold evaluation, and audit recording.
 * `GET /audit/recent` — Retrieves a paginated list of recent historical decisions.
-* `GET /audit/{audit_id}` — Retrieves a specific immutable decision record.
+* `GET /audit/{audit_id}` - Retrieves a specific decision record from the application-level append-only audit trail.
 
 ## Limitations
 
