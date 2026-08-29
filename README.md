@@ -74,24 +74,22 @@ streamlit run dashboard/app.py
 ### Tests
 Run the comprehensive test suite to verify the decision engine, API, and policy isolation:
 ```bash
-python -m unittest discover tests
+python -m pytest tests -q
 ```
-*Current verified test count: 64 tests*
+*Current verified test result: 66 passed, 274 warnings*
 
 ## Demo Walkthrough
 
 A complete system evaluation takes approximately 2-3 minutes:
 1. Open the Streamlit dashboard (`http://localhost:8501`).
-2. Check the bottom-left sidebar to verify API Health is `READY`.
-3. Enter a high-value COD order in the "Live Order Scoring" tab.
-4. Click **Score Order**.
-5. Observe the calculated Risk Score and the categorical **APPROVE/REVIEW/HOLD** decision.
-6. Review the "Top Model Contributions" section to see exactly which features drove the risk up or down.
-7. Copy the generated Audit ID.
-8. Navigate to the **Recent Audited Decisions** tab.
-9. Verify the decision was permanently recorded with its associated model and policy version.
-10. Open the **Policy Analytics** tab to view the threshold trade-off curves.
-11. View the **Held-Out Test Metrics** to see the system's simulated financial performance.
+2. Check the top header to verify the overall System Health is `Online`.
+3. In the **Live Scoring Console** tab, enter a high-value COD order and click **Score Order**.
+4. Observe the calculated Risk Score, the categorical **APPROVE/REVIEW/HOLD** decision, and the visual threshold evaluation.
+5. Review the **Risk Increasing Factors** and **Risk Reducing Factors** to see exactly which features drove the decision.
+6. Copy the generated Audit ID from the success confirmation.
+7. Navigate to the **Audit Ledger** tab.
+8. Verify the decision was recorded, and select the Audit ID to view a structured **Audit Receipt** containing the core decision and available explanations.
+9. Open the **System & Policy Analytics** tab to view the threshold trade-off curves and held-out test metrics.
 
 ## Current Model and Evaluation
 
@@ -141,12 +139,17 @@ These contributions are computed in Logistic Regression log-odds space. The expl
 
 ## Auditability
 
-Every scored order is durably recorded in an application-level append-only SQLite database (`decision_audit.db`). The record includes a unique `audit_id`, UTC ISO-8601 timestamp, decision, risk score, reason codes, and strict `model_version` / `policy_version` tracking. *(Note: SQLite provides a functional hackathon MVP, but is not cryptographically tamper-proof).*
+Every scored order is durably recorded in an application-level append-only SQLite database (`logs/audit_log.db`, table `decision_audit_log`). 
+
+The record includes a concise, human-readable unique identifier in the format `AUD-XXXXXXXXXXXX` (where the suffix is 12 uppercase hex characters extracted from a UUID4). This approach provides 48 bits of randomness, yielding a very low collision probability, while the database `PRIMARY KEY` constraint on the `audit_id` column provides the final strict protection against duplicate entries.
+
+The audit trail durably persists the UTC ISO-8601 timestamp, `order_id`, decision, risk score, reason codes, and strict `model_version` / `policy_version` tracking. *(Note: SQLite provides a functional hackathon MVP, but is not cryptographically tamper-proof).*
 
 ## API Endpoints
 
 * `GET /health` — Diagnostics and readiness probe.
 * `POST /score-order` — Synchronous scoring, threshold evaluation, and audit recording.
+  * *Response includes streamlined keys: `risk_score`, `decision`, `pos_contributions`, `neg_contributions`, and `score_reason`.*
 * `GET /audit/recent` — Retrieves a paginated list of recent historical decisions.
 * `GET /audit/{audit_id}` - Retrieves a specific decision record from the application-level append-only audit trail.
 
