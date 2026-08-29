@@ -116,9 +116,9 @@ def generate_reasons(features: dict, risk_score: float, policy_config: dict, mod
     domain signals, and risk score categorization.
     """
     result = {
-        "risk_score_reason": "",
-        "top_positive_model_contributions": [],
-        "top_negative_model_contributions": [],
+        "score_reason": "",
+        "pos_contributions": [],
+        "neg_contributions": [],
         "domain_signals": []
     }
     
@@ -127,11 +127,11 @@ def generate_reasons(features: dict, risk_score: float, policy_config: dict, mod
     t_hold = policy_config.get('hold_threshold', 1.0)
     
     if risk_score < t_rev:
-        result["risk_score_reason"] = "LOW_MODEL_RISK: The reasonably calibrated probability estimate indicates low model risk."
+        result["score_reason"] = "LOW_MODEL_RISK: The reasonably calibrated probability estimate indicates low model risk."
     elif risk_score < t_hold:
-        result["risk_score_reason"] = "ELEVATED_MODEL_RISK: The reasonably calibrated probability estimate indicates elevated model risk."
+        result["score_reason"] = "ELEVATED_MODEL_RISK: The reasonably calibrated probability estimate indicates elevated model risk."
     else:
-        result["risk_score_reason"] = "HIGH_MODEL_RISK: The reasonably calibrated probability estimate indicates high model risk."
+        result["score_reason"] = "HIGH_MODEL_RISK: The reasonably calibrated probability estimate indicates high model risk."
 
     # 2. Model contributions
     if model is not None:
@@ -143,8 +143,8 @@ def generate_reasons(features: dict, risk_score: float, policy_config: dict, mod
         pos_contribs = [c for c in meaningful_contributions if c['direction'] == 'increases_risk']
         neg_contribs = [c for c in meaningful_contributions if c['direction'] == 'reduces_risk']
         
-        result["top_positive_model_contributions"] = pos_contribs[:3]
-        result["top_negative_model_contributions"] = neg_contribs[:3]
+        result["pos_contributions"] = pos_contribs[:3]
+        result["neg_contributions"] = neg_contribs[:3]
         
     # 3. Domain context (heuristics)
     if features.get('amount_inr', 0.0) >= DOMAIN_CONTEXT_THRESHOLDS["HIGH_ORDER_VALUE_INR"]:

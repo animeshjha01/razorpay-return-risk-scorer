@@ -68,21 +68,21 @@ def process_decision(score: float, features: dict, policy_config: dict, model=No
     reasons = generate_reasons(features, validate_score(score), policy_config, model)
     
     # Collect flat reason codes for quick summary
-    flat_reason_codes = [reasons["risk_score_reason"].split(":")[0]]
-    for c in reasons["top_positive_model_contributions"]:
+    flat_reason_codes = [reasons["score_reason"].split(":")[0]]
+    for c in reasons["pos_contributions"]:
         flat_reason_codes.append(c["reason_code"])
-    for c in reasons["top_negative_model_contributions"]:
+    for c in reasons["neg_contributions"]:
         flat_reason_codes.append(c["reason_code"])
     flat_reason_codes.extend(reasons["domain_signals"])
     
     return {
         "decision": decision,
         "risk_score": float(score),
-        "top_positive_model_contributions": reasons["top_positive_model_contributions"],
-        "top_negative_model_contributions": reasons["top_negative_model_contributions"],
+        "pos_contributions": reasons["pos_contributions"],
+        "neg_contributions": reasons["neg_contributions"],
         "reason_codes": flat_reason_codes,
         "domain_signals": reasons["domain_signals"],
-        "risk_score_reason": reasons["risk_score_reason"],
+        "score_reason": reasons["score_reason"],
         "review_threshold": float(policy_config['review_threshold']),
         "hold_threshold": float(policy_config['hold_threshold']),
         "policy_version": policy_config.get('policy_version', 'UNKNOWN')

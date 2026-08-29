@@ -89,11 +89,11 @@ class ScoringResponse(BaseModel):
     order_id: str
     risk_score: float
     decision: str
-    top_positive_model_contributions: List[Contribution]
-    top_negative_model_contributions: List[Contribution]
+    pos_contributions: List[Contribution]
+    neg_contributions: List[Contribution]
     reason_codes: List[str]
     domain_signals: List[str]
-    risk_score_reason: str
+    score_reason: str
     review_threshold: float
     hold_threshold: float
     audit_id: str

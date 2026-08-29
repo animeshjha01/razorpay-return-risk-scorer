@@ -71,31 +71,31 @@ class TestDecisionPolicy(unittest.TestCase):
         result = process_decision(0.75, features, self.valid_policy, model)
         
         # 1. Deterministic and Uses Fitted Model
-        self.assertGreater(len(result["top_positive_model_contributions"]), 0)
+        self.assertGreater(len(result["pos_contributions"]), 0)
         
         # 2. Positive vs Negative and Top-N / Materiality filtering
         from reason_codes import EXPLANATION_MIN_ABS_CONTRIBUTION
-        self.assertLessEqual(len(result["top_positive_model_contributions"]), 3)
-        self.assertLessEqual(len(result["top_negative_model_contributions"]), 3)
+        self.assertLessEqual(len(result["pos_contributions"]), 3)
+        self.assertLessEqual(len(result["neg_contributions"]), 3)
         
-        for c in result["top_positive_model_contributions"]:
+        for c in result["pos_contributions"]:
             self.assertEqual(c["direction"], "increases_risk")
             self.assertGreaterEqual(c["contribution"], EXPLANATION_MIN_ABS_CONTRIBUTION)
             
-        for c in result["top_negative_model_contributions"]:
+        for c in result["neg_contributions"]:
             self.assertEqual(c["direction"], "reduces_risk")
             self.assertLessEqual(c["contribution"], -EXPLANATION_MIN_ABS_CONTRIBUTION)
             
         # Ensure flat reason codes only surface the top N contributors + domain + base score
-        expected_reason_code_count = 1 + len(result["top_positive_model_contributions"]) + len(result["top_negative_model_contributions"]) + len(result["domain_signals"])
+        expected_reason_code_count = 1 + len(result["pos_contributions"]) + len(result["neg_contributions"]) + len(result["domain_signals"])
         self.assertEqual(len(result["reason_codes"]), expected_reason_code_count)
             
         # 3. Categorical Aggregated (method should be aggregated instead of method_cod)
-        features_explained = [c["feature"] for c in result["top_positive_model_contributions"] + result["top_negative_model_contributions"]]
+        features_explained = [c["feature"] for c in result["pos_contributions"] + result["neg_contributions"]]
         self.assertNotIn("method_cod", features_explained)
         
         # 4. Reason codes do not claim causality
-        texts = [c["reason_text"].lower() for c in result["top_positive_model_contributions"] + result["top_negative_model_contributions"]]
+        texts = [c["reason_text"].lower() for c in result["pos_contributions"] + result["neg_contributions"]]
         for t in texts:
             self.assertNotIn("caused", t)
             self.assertNotIn("because", t)
@@ -113,7 +113,7 @@ class TestDecisionPolicy(unittest.TestCase):
         
         self.assertEqual(result['decision'], 'APPROVE')
         self.assertEqual(result['risk_score'], 0.15)
-        self.assertIn("LOW_MODEL_RISK", result['risk_score_reason'])
+        self.assertIn("LOW_MODEL_RISK", result['score_reason'])
         self.assertEqual(result['review_threshold'], 0.20)
 
     def test_model_reconstruction_and_aggregation(self):

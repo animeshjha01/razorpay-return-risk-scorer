@@ -126,13 +126,13 @@ if submitted:
                     st.error(f"### Decision: {decision}")
                     
                 st.metric("Risk probability estimate", f"{data['risk_score']:.3f}", help="Reasonably calibrated probability estimate with limitations.")
-                st.caption(f"Reason: {data.get('risk_score_reason', '')}")
+                st.caption(f"Reason: {data.get('score_reason', '')}")
             
             with r_col2:
                 st.markdown("### Why did the model reach this decision?")
                 
-                pos_contribs = data.get("top_positive_model_contributions", [])
-                neg_contribs = data.get("top_negative_model_contributions", [])
+                pos_contribs = data.get("pos_contributions", [])
+                neg_contribs = data.get("neg_contributions", [])
                 
                 if pos_contribs:
                     st.markdown("**Top risk-increasing model contributions**")
