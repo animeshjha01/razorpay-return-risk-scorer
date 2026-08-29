@@ -84,7 +84,7 @@ class AuditLog:
             raise ValueError("policy_version must be a non-empty string.")
 
         # 2. Generation of system fields
-        final_audit_id = audit_id if audit_id else f"audit_{uuid.uuid4().hex}"
+        final_audit_id = audit_id if audit_id else f"AUD-{uuid.uuid4().hex[:12].upper()}"
         timestamp_iso = datetime.now(timezone.utc).isoformat()
         reason_codes_json = json.dumps(reason_codes)
 

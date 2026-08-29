@@ -51,7 +51,14 @@ class TestAuditLog(unittest.TestCase):
     # 2 & 3. Append and Retrieve exact record
     def test_append_and_retrieve_valid_decision(self):
         audit_id = self.logger.append_decision(**self.valid_params)
-        self.assertTrue(audit_id.startswith("audit_"))
+        
+        # Verify format and uniqueness
+        self.assertTrue(audit_id.startswith("AUD-"))
+        self.assertEqual(len(audit_id), 16)
+        self.assertTrue(all(c in "0123456789ABCDEF" for c in audit_id[4:]))
+        
+        audit_id2 = self.logger.append_decision(**self.valid_params)
+        self.assertNotEqual(audit_id, audit_id2)
         
         record = self.logger.get_audit_record(audit_id)
         self.assertIsNotNone(record)
