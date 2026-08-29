@@ -256,7 +256,20 @@ else:
     df_audits = pd.DataFrame(recent_records)
     # Reorder/select useful columns
     cols = ["timestamp", "order_id", "risk_score", "decision", "audit_id", "model_version", "policy_version"]
-    df_display = df_audits[[c for c in cols if c in df_audits.columns]]
+    df_display = df_audits[[c for c in cols if c in df_audits.columns]].copy()
+    
+    # Apply human-readable labels for the frontend
+    df_display.rename(columns={
+        "audit_id": "Audit ID",
+        "timestamp": "Time",
+        "order_id": "Order ID",
+        "risk_score": "Risk Score",
+        "decision": "Decision",
+        "reason_codes": "Reasons",
+        "model_version": "Model Version",
+        "policy_version": "Policy Version"
+    }, inplace=True)
+    
     st.dataframe(df_display, hide_index=True, use_container_width=True)
     
     st.subheader("Inspect Audit Record")
