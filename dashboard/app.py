@@ -51,11 +51,12 @@ st.markdown("##### ML-powered return-risk decisioning")
 
 # Health Check Header Strip
 health = check_api_health()
-api_status = "Online" if health.get("status") == "READY" else "Unavailable"
+api_status = "Online" if health.get("status") == "READY" else "Offline"
 model_version = health.get("model_version", "Unknown")
 policy_version = health.get("policy_version", "Unknown")
 
-st.markdown(f"**API**: {api_status} | **Model**: {model_version} | **Policy**: {policy_version}")
+status_dot = "🟢" if api_status == "Online" else "🔴"
+st.markdown(f"**{status_dot} API**: {api_status} &nbsp;&nbsp;|&nbsp;&nbsp; **🧠 Model**: {model_version} &nbsp;&nbsp;|&nbsp;&nbsp; **📜 Policy**: {policy_version}")
 if api_status != "Online":
     st.warning("API is currently unavailable. Ensure the backend FastAPI service is running.")
 
@@ -74,21 +75,27 @@ with tab1:
     
     with col_input:
         with st.container(border=True):
-            st.markdown("### Order Details")
             with st.form("scoring_form"):
+                st.markdown("#### ORDER DETAILS")
                 order_id = st.text_input("Order ID", value="demo_001")
                 amount_inr = st.number_input("Amount (INR)", min_value=0.0, value=2500.0, step=100.0)
                 method = st.selectbox("Payment Method", ["cod", "upi", "card", "netbanking", "wallet"])
                 category = st.selectbox("Category", ["apparel", "electronics", "home", "beauty", "digital", "grocery"])
                 
+                st.markdown("#### CUSTOMER PROFILE")
                 c1, c2 = st.columns(2)
                 with c1:
                     is_new_customer = st.checkbox("New Customer")
-                    is_weekend = st.checkbox("Weekend Order")
-                    is_late_night = st.checkbox("Late Night Order")
                 with c2:
                     past_orders = st.number_input("Past Orders", min_value=0, value=0, step=1)
-                    past_return_rate = st.slider("Past Return Rate", 0.0, 1.0, 0.0)
+                past_return_rate = st.slider("Past Return Rate", 0.0, 1.0, 0.0)
+                
+                st.markdown("#### FULFILLMENT / BEHAVIOR")
+                f1, f2 = st.columns(2)
+                with f1:
+                    is_weekend = st.checkbox("Weekend Order")
+                    is_late_night = st.checkbox("Late Night Order")
+                with f2:
                     order_hour = st.slider("Order Hour (0-23)", 0, 23, 14)
                     
                 delivery_distance_km = st.number_input("Delivery Distance (km)", min_value=0.0, value=15.0)
@@ -128,7 +135,7 @@ with tab1:
                         
                         # Score and Decision
                         d_col1, d_col2 = st.columns(2)
-                        decision = data['decision']
+                        decision = data.get('decision', 'UNKNOWN')
                         with d_col1:
                             if decision == "APPROVE":
                                 st.success(f"## {decision}")
@@ -137,18 +144,72 @@ with tab1:
                             else:
                                 st.error(f"## {decision}")
                         with d_col2:
-                            st.metric("Risk Score", f"{data['risk_score']:.3f}", help="Reasonably calibrated probability estimate with limitations.")
+                            try:
+                                score_fmt = f"{float(data.get('risk_score', 0)):.3f}"
+                            except Exception:
+                                score_fmt = str(data.get('risk_score', 'N/A'))
+                            st.metric("Risk Score", score_fmt, help="Reasonably calibrated probability estimate with limitations.")
                             
-                        st.success("Decision recorded successfully")
-                        st.markdown(f"Audit ID: `{data.get('audit_id')}`  \nOrder ID: `{data.get('order_id')}`  \nModel: `{data.get('model_version')}`  \nPolicy: `{data.get('policy_version')}`")
-                        
                         # Threshold Visualization
-                        st.markdown(f"**Policy Thresholds:**")
-                        st.markdown(f"`0 ───────── {review_thresh:.2f} (REVIEW) ───────── {hold_thresh:.2f} (HOLD) ───────── 1.00`")
+                        st.markdown("**Risk Score Gauge:**")
+                        try:
+                            zones = pd.DataFrame([
+                                {"zone": "APPROVE", "start": 0.0, "end": review_thresh, "color": "#d4edda"},
+                                {"zone": "REVIEW", "start": review_thresh, "end": hold_thresh, "color": "#fff3cd"},
+                                {"zone": "HOLD", "start": hold_thresh, "end": 1.0, "color": "#f8d7da"},
+                            ])
+                            score_val = float(data.get('risk_score', 0.0))
+                            score_df = pd.DataFrame([{"score": score_val}])
+                            
+                            c_zones = alt.Chart(zones).mark_rect(opacity=0.7).encode(
+                                x=alt.X('start:Q', scale=alt.Scale(domain=[0.0, 1.0]), axis=alt.Axis(title='Risk Score Range', values=[0.0, review_thresh, hold_thresh, 1.0])),
+                                x2='end:Q',
+                                color=alt.Color('color:N', scale=None, legend=None),
+                                tooltip=['zone', 'start', 'end']
+                            )
+                            c_score = alt.Chart(score_df).mark_tick(color='black', thickness=4, size=40).encode(
+                                x='score:Q',
+                                tooltip=['score']
+                            )
+                            gauge = alt.layer(c_zones, c_score).properties(height=50)
+                            st.altair_chart(gauge, use_container_width=True)
+                        except Exception:
+                            st.markdown(f"`0 ───────── {review_thresh:.2f} (REVIEW) ───────── {hold_thresh:.2f} (HOLD) ───────── 1.00`")
+                        
+                        st.success("Decision recorded successfully")
+                        st.markdown(f"**Audit ID**: `{data.get('audit_id')}` &nbsp;&nbsp;|&nbsp;&nbsp; **Order ID**: `{data.get('order_id')}` &nbsp;&nbsp;|&nbsp;&nbsp; **Model Version**: `{data.get('model_version')}` &nbsp;&nbsp;|&nbsp;&nbsp; **Policy Version**: `{data.get('policy_version')}`")
                         
                         st.markdown("---")
                         
-                        # Explanation
+                        # ML Contribution Tornado Chart
+                        st.markdown("#### Model Contribution (log-odds)")
+                        tornado_data = []
+                        for p in data.get("pos_contributions", []):
+                            tornado_data.append({"feature": p.get("feature", ""), "value": float(p.get("contribution", 0.0)), "type": "Risk Increasing"})
+                        for n in data.get("neg_contributions", []):
+                            tornado_data.append({"feature": n.get("feature", ""), "value": float(n.get("contribution", 0.0)), "type": "Risk Reducing"})
+                            
+                        if tornado_data:
+                            try:
+                                df_torn = pd.DataFrame(tornado_data)
+                                df_torn['abs_value'] = df_torn['value'].abs()
+                                df_torn = df_torn.sort_values('abs_value', ascending=False)
+                                
+                                tornado_chart = alt.Chart(df_torn).mark_bar().encode(
+                                    x=alt.X('value:Q', title='Model Contribution (log-odds)'),
+                                    y=alt.Y('feature:N', sort=alt.EncodingSortField(field="abs_value", order="descending"), title=''),
+                                    color=alt.Color('type:N', scale=alt.Scale(domain=['Risk Increasing', 'Risk Reducing'], range=['#d9534f', '#5cb85c']), legend=alt.Legend(title="Factor Type")),
+                                    tooltip=['feature', 'value']
+                                ).properties(height=max(150, len(df_torn)*30))
+                                st.altair_chart(tornado_chart, use_container_width=True)
+                            except Exception:
+                                st.info("Could not render model contribution chart.")
+                        else:
+                            st.info("No model contribution details available for this decision.")
+                        
+                        st.markdown("---")
+                        
+                        # Explanation (Detailed Factors)
                         e_col1, e_col2 = st.columns(2)
                         with e_col1:
                             with st.container(border=True):
@@ -171,21 +232,27 @@ with tab1:
                                 
                         st.markdown("---")
                         
-                        # Reason Codes
-                        st.markdown("#### Score Reason")
-                        st.info(data.get('score_reason', ''))
-                        
-                        reasons = data.get("reason_codes", [])
-                        if reasons:
-                            st.markdown("#### Reason Codes")
-                            for rc in reasons:
-                                st.markdown(f"- `{rc}`")
+                        col_reason1, col_reason2 = st.columns(2)
+                        with col_reason1:
+                            with st.container(border=True):
+                                st.markdown("#### Score Reason")
+                                st.info(data.get('score_reason', ''))
+                        with col_reason2:
+                            with st.container(border=True):
+                                reasons = data.get("reason_codes", [])
+                                st.markdown("#### Reason Codes")
+                                if reasons:
+                                    for rc in reasons:
+                                        st.markdown(f"- `{rc}`")
+                                else:
+                                    st.markdown("*None*")
                                 
                         domain_sigs = data.get("domain_signals", [])
                         if domain_sigs:
-                            st.markdown("#### Domain Signals")
-                            for ds in domain_sigs:
-                                st.markdown(f"- `{ds}`")
+                            with st.container(border=True):
+                                st.markdown("#### Domain Signals")
+                                for ds in domain_sigs:
+                                    st.markdown(f"- `{ds}`")
 
                     elif resp.status_code == 400:
                         st.error(f"Domain Validation Error: {resp.json().get('detail', 'Invalid order constraints')}")
@@ -227,7 +294,22 @@ with tab2:
             "policy_version": "Policy Version"
         }, inplace=True)
         
-        st.dataframe(df_display, hide_index=True, use_container_width=True)
+        def color_decision(val):
+            if val == 'APPROVE':
+                return 'color: #155724; background-color: #d4edda; font-weight: bold;'
+            elif val == 'REVIEW':
+                return 'color: #856404; background-color: #fff3cd; font-weight: bold;'
+            elif val == 'HOLD':
+                return 'color: #721c24; background-color: #f8d7da; font-weight: bold;'
+            return ''
+            
+        try:
+            styled_df = df_display.style.map(color_decision, subset=['Decision']).format({"Risk Score": "{:.3f}"})
+        except AttributeError:
+            # Fallback for older pandas versions
+            styled_df = df_display.style.applymap(color_decision, subset=['Decision']).format({"Risk Score": "{:.3f}"})
+            
+        st.dataframe(styled_df, hide_index=True, use_container_width=True)
         
         st.markdown("#### Audit Receipt")
         selected_audit_id = st.selectbox("Select an Audit ID to view receipt:", [""] + list(df_audits["audit_id"]))
@@ -239,50 +321,46 @@ with tab2:
                     with st.container(border=True):
                         st.markdown("#### AUDIT RECEIPT")
                         
-                        st.markdown("##### Core Decision")
-                        st.markdown(f"**Audit ID**: `{audit_data.get('audit_id')}`")
-                        st.markdown(f"**Time**: `{audit_data.get('timestamp')}`")
-                        st.markdown(f"**Order ID**: `{audit_data.get('order_id')}`")
-                        st.markdown(f"**Risk Score**: `{audit_data.get('risk_score')}`")
-                        st.markdown(f"**Decision**: `{audit_data.get('decision')}`")
-                        st.markdown(f"**Model Version**: `{audit_data.get('model_version')}`")
-                        st.markdown(f"**Policy Version**: `{audit_data.get('policy_version')}`")
-                        
-                        st.markdown("##### Decision Explanation")
-                        reasons = audit_data.get("reason_codes", [])
-                        if reasons:
-                            st.markdown("**Reasons**:")
-                            for r in reasons:
-                                st.markdown(f"- `{r}`")
-                        else:
-                            st.markdown("**Reasons**: None")
-                            
-                        if "score_reason" in audit_data:
-                            st.markdown(f"**Score Reason**: {audit_data.get('score_reason')}")
-                            
-                        pos = audit_data.get("pos_contributions", [])
-                        if pos:
-                            st.markdown("**Positive Contributions**:")
-                            for p in pos:
-                                st.markdown(f"- **{p.get('feature', '')}** ({p.get('raw_value', '')}): *+{p.get('contribution', '')}*")
-                                
-                        neg = audit_data.get("neg_contributions", [])
-                        if neg:
-                            st.markdown("**Negative Contributions**:")
-                            for n in neg:
-                                st.markdown(f"- **{n.get('feature', '')}** ({n.get('raw_value', '')}): *{n.get('contribution', '')}*")
-                                
-                        domain = audit_data.get("domain_signals", [])
-                        if domain:
-                            st.markdown("**Domain Signals**:")
-                            for ds in domain:
-                                st.markdown(f"- `{ds}`")
-                                
-                        orig_req = audit_data.get("original_request") or audit_data.get("request_payload") or audit_data.get("payload") or audit_data.get("order_data")
-                        if orig_req:
-                            st.markdown("##### Original Request")
-                            with st.expander("View Request Payload"):
-                                st.json(orig_req)
+                        r_col1, r_col2 = st.columns(2)
+                        with r_col1:
+                            st.markdown("##### Core Decision")
+                            st.markdown(f"**Audit ID**: `{audit_data.get('audit_id')}`")
+                            st.markdown(f"**Time**: `{audit_data.get('timestamp')}`")
+                            st.markdown(f"**Order ID**: `{audit_data.get('order_id')}`")
+                            st.markdown(f"**Decision**: `{audit_data.get('decision')}`")
+                            try:
+                                st.markdown(f"**Risk Score**: `{float(audit_data.get('risk_score', 0)):.3f}`")
+                            except Exception:
+                                st.markdown(f"**Risk Score**: `{audit_data.get('risk_score')}`")
+                            st.markdown(f"**Model Version**: `{audit_data.get('model_version')}`")
+                            st.markdown(f"**Policy Version**: `{audit_data.get('policy_version')}`")
+                        with r_col2:
+                            st.markdown("##### Decision Explanation")
+                            if "score_reason" in audit_data:
+                                st.markdown(f"**Score Reason**: {audit_data.get('score_reason')}")
+                            reasons = audit_data.get("reason_codes", [])
+                            if reasons:
+                                st.markdown("**Reason Codes**:")
+                                for r in reasons:
+                                    st.markdown(f"- `{r}`")
+                            pos = audit_data.get("pos_contributions", [])
+                            if pos:
+                                st.markdown("**Risk Increasing Factors**:")
+                                for p in pos:
+                                    st.markdown(f"- **{p.get('feature', '')}** ({p.get('raw_value', '')}): *+{p.get('contribution', '')}*")
+                            neg = audit_data.get("neg_contributions", [])
+                            if neg:
+                                st.markdown("**Risk Reducing Factors**:")
+                                for n in neg:
+                                    st.markdown(f"- **{n.get('feature', '')}** ({n.get('raw_value', '')}): *{n.get('contribution', '')}*")
+                            domain = audit_data.get("domain_signals", [])
+                            if domain:
+                                st.markdown("**Domain Signals**:")
+                                for ds in domain:
+                                    st.markdown(f"- `{ds}`")
+                                    
+                        with st.expander("View Raw Audit Record"):
+                            st.json(audit_data)
                             
                 elif resp.status_code == 404:
                     st.warning("Audit record not found.")
@@ -307,7 +385,7 @@ with tab3:
             m1.metric("Brier Score", f"{metrics.get('brier_score', 0):.3f}")
             m2.metric("Positive-Event Prevalence", f"{metrics.get('prevalence', 0):.3f}")
         else:
-            st.warning("Metrics artifact not found or corrupted.")
+            st.info("Held-out metrics unavailable — evaluation artifact not present in this environment.")
             
         st.markdown("#### Business Policy")
         if policy:
@@ -317,7 +395,7 @@ with tab3:
             p1.metric("Max Intervention Rate", f"{policy.get('max_intervention_rate', 0):.1%}")
             p2.metric("Max Hold Rate", f"{policy.get('max_hold_rate', 0):.1%}")
         else:
-            st.warning("Policy artifact not found or corrupted.")
+            st.info("Policy configuration unavailable — artifact not present in this environment.")
             
     with m_col2:
         st.markdown("#### Threshold Diagnostics")
@@ -325,7 +403,7 @@ with tab3:
         if diagnostics is not None and not diagnostics.empty:
             st.dataframe(diagnostics[['threshold', 'precision', 'recall', 'f1_score', 'flagged_rate']], hide_index=True)
         else:
-            st.warning("Diagnostics artifact not found or corrupted.")
+            st.info("Threshold diagnostics unavailable — evaluation artifact not present in this environment.")
             
     st.divider()
     
@@ -350,4 +428,4 @@ with tab3:
             ).interactive()
             st.altair_chart(chart_b, use_container_width=True)
     else:
-        st.warning("Policy candidates artifact not found or corrupted.")
+        st.info("Operational trade-off visualizations unavailable — candidates artifact not present in this environment.")

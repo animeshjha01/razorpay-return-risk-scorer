@@ -26,21 +26,62 @@ This project emphasizes an evidence-driven, economically-aware ML methodology ra
 * **Model-Derived Explanations:** Real mathematical feature contributions (log-odds) are surfaced to assist human review.
 * **Audit History:** An application-level append-only SQLite database ensures all decisions are durably recorded.
 
+## Dashboard Preview
+
+**Live Scoring Console (Risk Assessment & Explainability)**
+![Live Scoring Console](docs/screenshots/live_scoring_console.png)
+
+**Audit Ledger & Decision Receipts**
+![Audit Ledger](docs/screenshots/audit_ledger.png)
+
+**System & Policy Analytics**
+![System Analytics](docs/screenshots/analytics.png)
+
 ## Architecture
 
 ```mermaid
-flowchart LR
-    A[Dashboard / Client] -->|HTTP POST| B(FastAPI)
-    B --> C{ScoringService}
-    C --> D[Model & Preprocessing]
-    C --> E[Cost-Aware Policy]
-    C --> F[Explainability Engine]
-    C --> G[(Audit Log SQLite)]
-    F --> C
-    D --> C
-    E --> C
-    G --> B
-    C --> B
+graph TD
+    User([Risk Operations])
+    
+    subgraph Frontend [Streamlit Dashboard]
+        LiveConsole[Live Scoring Console]
+        AuditViewer[Audit Ledger]
+        Analytics[System Analytics]
+    end
+    
+    subgraph Backend [FastAPI Application]
+        API[POST /score-order]
+        AuditAPI[GET /audit]
+        
+        subgraph ML_Layer [ML Inference]
+            Model[(Logistic Regression Model)]
+            ScoringService[Scoring Service]
+        end
+        
+        subgraph Policy_Layer [Business Logic]
+            PolicyConfig{Policy Configuration}
+            DecisionEngine[Decision Engine]
+        end
+    end
+    
+    subgraph Persistence [Data Layer]
+        AuditDB[(SQLite: decision_audit_log)]
+    end
+    
+    User -->|Inputs Order Data| LiveConsole
+    LiveConsole -->|HTTP POST| API
+    
+    API --> ScoringService
+    ScoringService -->|Reads| Model
+    ScoringService -->|Log-odds contributions| DecisionEngine
+    
+    DecisionEngine -->|Reads Thresholds| PolicyConfig
+    DecisionEngine -->|Evaluates Risk| AuditDB
+    
+    API -->|Returns Score, Decision, Explanations| LiveConsole
+    
+    AuditViewer -->|GET| AuditAPI
+    AuditAPI -->|Reads| AuditDB
 ```
 
 For deep technical details on component boundaries and data flows, see [ARCHITECTURE.md](ARCHITECTURE.md). For detailed model methodology, see [MODEL_CARD.md](MODEL_CARD.md).
@@ -150,6 +191,65 @@ The audit trail durably persists the UTC ISO-8601 timestamp, `order_id`, decisio
 * `GET /health` — Diagnostics and readiness probe.
 * `POST /score-order` — Synchronous scoring, threshold evaluation, and audit recording.
   * *Response includes streamlined keys: `risk_score`, `decision`, `pos_contributions`, `neg_contributions`, and `score_reason`.*
+
+  **Example Request:**
+  ```json
+  {
+    "order_id": "ORD-987654321",
+    "amount_inr": 2500,
+    "method": "cod",
+    "category": "electronics",
+    "is_new_customer": 1,
+    "past_orders": 0,
+    "past_return_rate": 0,
+    "order_hour": 14,
+    "is_weekend": 0,
+    "is_late_night": 0,
+    "delivery_distance_km": 15,
+    "checkout_time_sec": 60
+  }
+  ```
+
+  **Example Response:**
+  ```json
+  {
+    "order_id": "ORD-987654321",
+    "risk_score": 0.346,
+    "decision": "REVIEW",
+    "pos_contributions": [
+      {
+        "feature": "method",
+        "raw_value": "cod",
+        "contribution": 1.148,
+        "direction": "increases_risk",
+        "reason_code": "ELEVATED_RISK_PAYMENT_METHOD",
+        "reason_text": "This payment method provides a risk-increasing model contribution in log-odds space."
+      }
+    ],
+    "neg_contributions": [
+      {
+        "feature": "past_return_rate",
+        "raw_value": 0.0,
+        "contribution": -0.472,
+        "direction": "reduces_risk",
+        "reason_code": "LOW_HISTORICAL_RETURN_RATE",
+        "reason_text": "Low historical return rate provides a risk-reducing model contribution in log-odds space."
+      }
+    ],
+    "reason_codes": [
+      "ELEVATED_MODEL_RISK",
+      "ELEVATED_RISK_PAYMENT_METHOD"
+    ],
+    "domain_signals": [],
+    "score_reason": "ELEVATED_MODEL_RISK: The reasonably calibrated probability estimate indicates elevated model risk.",
+    "review_threshold": 0.23,
+    "hold_threshold": 0.64,
+    "audit_id": "AUD-B205CB7DC1DD",
+    "model_version": "LR_UNWEIGHTED_V1",
+    "policy_version": "1.1"
+  }
+  ```
+
 * `GET /audit/recent` — Retrieves a paginated list of recent historical decisions.
 * `GET /audit/{audit_id}` - Retrieves a specific decision record from the application-level append-only audit trail.
 
@@ -164,13 +264,12 @@ The audit trail durably persists the UTC ISO-8601 timestamp, `order_id`, decisio
 * **Explanation Causality:** Features strongly correlated in the synthetic data may yield non-intuitive coefficient weights.
 * **Unknown Categories:** Unknown categorical values are tolerated through `handle_unknown="ignore"`.
 
-## Future Production Hardening
+## Production Roadmap
 
-If escalated beyond MVP, realistic next steps include:
-* Migrating to a production database or durable audit stream.
-* Implementing authentication and authorization.
-* Adding idempotency handling to the API layer.
-* Implementing drift monitoring and an automated retraining strategy.
-* Performing stronger calibration validation.
-* Adding operational handling of unknown categories.
-* Improving overall production observability.
+This repository represents a portfolio MVP architecture. For a production deployment, the following improvements are required:
+
+1. **Transactional Persistence:** Replace the local SQLite database with PostgreSQL to handle high-concurrency e-commerce workloads and transactional locking.
+2. **Network Idempotency:** Introduce idempotency keys to the API to prevent duplicate audit records and rescoring during client network retries.
+3. **Authentication & Authorization:** Add an Identity and Access Management (IAM) layer to secure endpoints for operational access.
+4. **Policy Lifecycle Management:** Introduce controlled, admin-managed policy versioning and safe threshold rollouts.
+5. **Observability:** Implement comprehensive production monitoring and alerting for data drift and operational anomalies.
